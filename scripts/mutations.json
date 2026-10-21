@@ -1,0 +1,30 @@
+[
+  {
+    "name": "unsafe packet accepted on disclosure boundary",
+    "file": "src/tesla/time.ts",
+    "from": "safe:x<index+p.delay",
+    "to": "safe:x<=index+p.delay",
+    "test": "forgery is accepted iff"
+  },
+  {
+    "name": "MAC key uses chain PRF input",
+    "file": "src/tesla/chain.ts",
+    "from": "Fprime(key:Uint8Array):Promise<Uint8Array>{return mac(key,new Uint8Array([1]))}",
+    "to": "Fprime(key:Uint8Array):Promise<Uint8Array>{return mac(key,new Uint8Array([0]))}",
+    "test": "every disclosed key verifies"
+  },
+  {
+    "name": "receiver skips anchor chain check",
+    "file": "src/tesla/receiver.ts",
+    "from": "if(!verified.valid)return",
+    "to": "if(false && !verified.valid)return",
+    "test": "rejects an invalid commitment"
+  },
+  {
+    "name": "airtime divides by twice the rate",
+    "file": "src/bandwidth.ts",
+    "from": "return (tagBits+keyBits)/bitsPerSecond;",
+    "to": "return (tagBits+keyBits)/(2*bitsPerSecond);",
+    "test": "rejects an invalid commitment"
+  }
+]

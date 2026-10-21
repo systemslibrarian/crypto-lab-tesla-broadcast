@@ -3,7 +3,7 @@ import {mac,truncate} from '../crypto/hmac';
 import {sha256} from '../crypto/sha256';
 import {signAnchor,verifyAnchor} from '../crypto/anchor';
 import {ed25519} from '@noble/curves/ed25519.js';
-import {build,authenticateKey,Fprime} from './chain';
+import {build,authenticateKey,F,Fprime} from './chain';
 import {createPacket} from './packet';
 import {receive} from './receiver';
 import {safe,disclosureTime} from './time';
@@ -38,6 +38,7 @@ describe('RFC 4082 timing and key authentication',()=>{
   for(let i=0;i<chain.length;i++)expect((await authenticateKey(chain[i],i,chain[0])).valid).toBe(true);
   const wrong=chain[4].slice();wrong[0]^=1;expect((await authenticateKey(wrong,4,chain[0])).valid).toBe(false);
   expect(hex(await Fprime(chain[4]))).not.toBe(hex(chain[4]));
+  expect(hex(await Fprime(chain[4]))).not.toBe(hex(await F(chain[4])));
  });
  it('forgery is accepted iff the assumed clock bound underestimates the true lag',async()=>{
   const chain=await build(8),key=crypto.getRandomValues(new Uint8Array(32));
@@ -56,7 +57,8 @@ describe('RFC 4082 timing and key authentication',()=>{
   expect((await receive(good,chain[2],arrival,4,p,chain[0],keys.signature,keys.publicKey)).accepted).toBe(true);
   expect((await receive(good,chain[2],arrival,4,{...p,delay:3},chain[0],keys.signature,keys.publicKey)).reason).toMatch(/commitment/);
   expect((await receive(good,chain[2],40,4,p,chain[0],keys.signature,keys.publicKey)).reason).toMatch(/public/);
-  expect((await receive(good,chain[3],arrival,4,p,chain[0],keys.signature,keys.publicKey)).reason).toMatch(/does not chain|MAC failed/);
+  const wrongKey=chain[2].slice();wrongKey[0]^=1;
+  expect((await receive(good,wrongKey,arrival,4,p,chain[0],keys.signature,keys.publicKey)).reason).toBe('Disclosed key does not chain to signed anchor');
   expect((await receive({...good,tag:new Uint8Array(4)},chain[2],arrival,4,p,chain[0],keys.signature,keys.publicKey)).reason).toBe('MAC failed');
   expect(safe(40,4,2,p).safe).toBe(false);
   expect(airtime(32,128,20)).toBe(8);
