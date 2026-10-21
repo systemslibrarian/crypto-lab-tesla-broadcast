@@ -6,6 +6,7 @@ import {ed25519} from '@noble/curves/ed25519.js';
 import {build,authenticateKey,F,Fprime} from './chain';
 import {createPacket} from './packet';
 import {receive} from './receiver';
+import {ReceiverSession} from './session';
 import {safe,disclosureTime} from './time';
 import {forgeAfterDisclosure} from '../attack/spoofer';
 import {airtime} from '../bandwidth';
@@ -33,6 +34,34 @@ describe('primary-source primitive vectors',()=>{
  });
 });
 describe('RFC 4082 timing and key authentication',()=>{
+ it('buffers safe packets across three lost disclosures and authenticates with K4',async()=>{
+  const chain=await build(8),p={t0:0,interval:10,delay:2,n:8};
+  const signed=signAnchor(chain[0],p,crypto.getRandomValues(new Uint8Array(32)));
+  const receiver=new ReceiverSession(p,chain[0],signed.signature,signed.publicKey);
+  for(let i=1;i<=4;i++){
+   const packet=await createPacket(chain[i],i,`message ${i}`,32);
+   expect(receiver.arrive(packet,(i+0.5)*10-4,5)).toBe('buffered');
+   expect(receiver.arrive(packet,(i+0.5)*10-4,5)).toBe('duplicate');
+  }
+  for(let i=1;i<4;i++)receiver.dropDisclosure(i);
+  expect(receiver.waiting).toEqual([1,2,3,4]);
+  const wrong=chain[4].slice();wrong[0]^=1;
+  expect((await receiver.disclose(4,wrong)).authenticated).toBe(false);
+  expect(receiver.waiting).toEqual([1,2,3,4]);
+  expect(await receiver.disclose(4,chain[4])).toEqual({authenticated:true,hops:4,released:[1,2,3,4]});
+  expect(receiver.accepted).toEqual([1,2,3,4]);
+  expect(receiver.waiting).toEqual([]);
+ });
+ it('discards a late genuine packet before disclosure and rejects a false bootstrap',async()=>{
+  const chain=await build(8),p={t0:0,interval:5,delay:1,n:8};
+  const signed=signAnchor(chain[0],p,crypto.getRandomValues(new Uint8Array(32)));
+  const receiver=new ReceiverSession(p,chain[0],signed.signature,signed.publicKey);
+  const packet=await createPacket(chain[1],1,'real',32);
+  expect(receiver.arrive(packet,7,5)).toBe('unsafe');
+  expect((await receiver.disclose(1,chain[1])).released).toEqual([]);
+  expect(receiver.accepted).toEqual([]);
+  expect(()=>new ReceiverSession({...p,delay:2},chain[0],signed.signature,signed.publicKey)).toThrow(/Bootstrap/);
+ });
  it('every disclosed key verifies to the signed root, but a modified key does not',async()=>{
   const chain=await build(8);
   for(let i=0;i<chain.length;i++)expect((await authenticateKey(chain[i],i,chain[0])).valid).toBe(true);

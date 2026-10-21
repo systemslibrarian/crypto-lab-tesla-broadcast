@@ -44,3 +44,26 @@ test('the disclosed chain and receiver-created tags rederive independently',asyn
  const derived=hmac(Buffer.from(wire![1],'hex'),Buffer.from([1]));
  expect(hmac(derived,packetInput(2,'FAKE: historical interval 2')).subarray(0,wire![2].length/2).toString('hex')).toBe(wire![2]);
 });
+test('lost disclosures release real buffered packets, while a wide bound discards them',async({page})=>{
+ await page.goto('./');
+ await page.locator('#loss').fill('3');
+ await page.getByRole('button',{name:'Verify disclosed K₄'}).click();
+ const result=page.locator('#chain-out');
+ await expect(result).toContainText('K₄ released 4 waiting packet(s)');
+ const text=await result.innerText();
+ for(const i of [1,2,3])expect(text).toContain(`K${i} disclosure lost`);
+ expect(text).toContain('Authenticated intervals: 1, 2, 3, 4; unsafe genuine packets: 0');
+ const keys=text.match(/K₄ ([0-9a-f]+) hashed (\d+) times to signed K₀ ([0-9a-f]+)/);
+ expect(keys).not.toBeNull();
+ let key=Buffer.from(keys![1],'hex');
+ for(let i=0;i<Number(keys![2]);i++)key=hmac(key,Buffer.from([0]));
+ expect(key.toString('hex')).toBe(keys![3]);
+ await page.locator('#lag').fill('0');
+ await page.locator('#interval').fill('5');
+ await page.locator('#delay').fill('1');
+ await page.locator('#bound').fill('10');
+ await expect(result).toContainText('Retired');
+ await page.getByRole('button',{name:'Verify disclosed K₄'}).click();
+ await expect(result).toContainText('unsafe genuine packets: 4');
+ await expect(result).toContainText('Authenticated intervals: none');
+});

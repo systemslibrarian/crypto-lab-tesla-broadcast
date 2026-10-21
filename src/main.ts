@@ -1,9 +1,10 @@
 import './styles.css';
 import {mac,truncate,equal} from './crypto/hmac';
-import {signAnchor,verifyAnchor,type Parameters} from './crypto/anchor';
-import {build,authenticateKey,Fprime} from './tesla/chain';
-import {tagInput} from './tesla/packet';
+import {signAnchor,type Parameters} from './crypto/anchor';
+import {build,Fprime} from './tesla/chain';
+import {tagInput,createPacket} from './tesla/packet';
 import {receive} from './tesla/receiver';
+import {ReceiverSession} from './tesla/session';
 import {forgeAfterDisclosure} from './attack/spoofer';
 import {receiverForgery} from './attack/shared-key';
 import {airtime} from './bandwidth';
@@ -35,11 +36,34 @@ el('shared-run').addEventListener('click',async()=>{
  el('shared-out').className=verified?'alarm':'warn';el('shared-out').textContent=`${verified?'ALARM — VALID TAG, AND FORGED BY A RECEIVER':'Rejected'}\nReceiver 1 computes a real HMAC and ${verified?'accepts':'rejects'} the forged message. Shared key: ${hex(shared)}; message: ${message}; full tag: ${hex(tag)}.`;
 });
 el('chain-run').addEventListener('click',async()=>{
- if(!signed)return;const p=parameters(),signatureOk=verifyAnchor(chain[0],p,signed.signature,signed.publicKey);
- if(!signatureOk){el('chain-out').className='warn';el('chain-out').textContent='Bootstrap failed: Ed25519 signature over the anchor and parameters is invalid.';return}
- const verified=await authenticateKey(chain[4],4,chain[0]);
- const loss=Number((el('loss') as HTMLInputElement).value);
- el('chain-out').className=verified.valid?'good':'warn';el('chain-out').textContent=`${verified.valid?'VERIFIED':'REJECTED'} — Ed25519 anchor signature valid; K₄ ${hex(chain[4])} hashed ${verified.hops} times to signed K₀ ${hex(chain[0])}. ${loss} earlier disclosure(s) marked lost; K₄ still checks. Signature: ${signed.signature.length*8} bits.`;
+ if(!signed)return;
+ const id=++run,p=parameters(),lag=Number((el('lag') as HTMLInputElement).value),bound=Number((el('bound') as HTMLInputElement).value),loss=Number((el('loss') as HTMLInputElement).value);
+ let receiver:ReceiverSession;
+ try{receiver=new ReceiverSession(p,chain[0],signed.signature,signed.publicKey)}
+ catch(error){el('chain-out').className='warn';el('chain-out').textContent=String(error);return}
+ const events=[
+  ...[1,2,3,4].map(index=>({time:(index+0.5)*p.interval,index,kind:'packet' as const})),
+  ...[1,2,3,4].map(index=>({time:(index+p.delay)*p.interval,index,kind:'disclosure' as const}))
+ ].sort((a,b)=>a.time-b.time||(a.kind==='packet'?-1:1));
+ const trace:string[]=[];let last:{authenticated:boolean;hops:number;released:number[]}|null=null;
+ for(const event of events){
+  if(id!==run)return;
+  if(event.kind==='packet'){
+   const packet=await createPacket(chain[event.index],event.index,`Genuine interval ${event.index}`,32);
+   const arrival=event.time-lag,status=receiver.arrive(packet,arrival,bound);
+   trace.push(`P${event.index} at local ${arrival}s: ${status}`);
+  }else if(event.index>3-loss&&event.index<4){
+   receiver.dropDisclosure(event.index);trace.push(`K${event.index} disclosure lost`);
+  }else{
+   const verdict=await receiver.disclose(event.index,chain[event.index]);
+   trace.push(`K${event.index} authenticated: ${verdict.released.length} buffered MAC(s) checked`);
+   if(event.index===4)last=verdict;
+  }
+ }
+ if(id!==run)return;
+ const verified=last?.authenticated===true;
+ el('chain-out').className=verified?(receiver.unsafe.length?'warn':'good'):'warn';
+ el('chain-out').textContent=`${verified?'VERIFIED':'REJECTED'} — Ed25519 anchor signature valid; K₄ ${hex(chain[4])} hashed ${last?.hops??0} times to signed K₀ ${hex(chain[0])}.\n${trace.join(' → ')}.\n${loss} disclosure(s) actually dropped; K₄ released ${last?.released.length??0} waiting packet(s) by hashing back to each earlier MAC key. Authenticated intervals: ${receiver.accepted.join(', ')||'none'}; unsafe genuine packets: ${receiver.unsafe.length}; waiting: ${receiver.waiting.length}. Signature: ${signed.signature.length*8} bits.`;
 });
 el('spoof').addEventListener('click',async()=>{
  if(!signed){el('timing-out').textContent='Bootstrap is still loading.';return}
