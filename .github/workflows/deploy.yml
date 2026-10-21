@@ -1,0 +1,58 @@
+name: Test and deploy
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions: {contents: read, pages: write, id-token: write}
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: {node-version: 22, cache: npm}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:a11y
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with: {path: dist}
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+  dependabot-auto-merge:
+    needs: build
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions: {contents: write, pull-requests: write, actions: write}
+    steps:
+      - uses: dependabot/fetch-metadata@v3
+      - name: Merge after the same complete gate and dispatch
+        run: |
+          for attempt in 1 2 3; do
+            gh pr merge --squash --delete-branch "$PR_URL" && merged=1 && break
+            sleep 15
+          done
+          [ -n "$merged" ] || { echo "::warning::gate passed, merge did not land"; exit 0; }
+          # A merge made with GITHUB_TOKEN raises no push event: GitHub suppresses
+          # it to prevent recursive workflows. Dispatch this lab's deploy file
+          # explicitly, so the same full gate runs before publishing the bump.
+          gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

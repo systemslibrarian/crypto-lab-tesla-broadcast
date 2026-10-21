@@ -1,0 +1,46 @@
+import {test,expect} from '@playwright/test';
+import {createHmac} from 'node:crypto';
+const hmac=(key:Buffer,message:Buffer)=>createHmac('sha256',key).update(message).digest();
+const packetInput=(index:number,message:string)=>{
+ const body=Buffer.from(message),tag=Buffer.from('TESLA-LAB/tag/1'),head=Buffer.alloc(23+body.length);
+ tag.copy(head);head.writeUInt32BE(index,15);head.writeUInt32BE(body.length,19);body.copy(head,23);return head;
+};
+test('the displayed clock inequality and actual HMAC explain both forged verdicts',async({page})=>{
+ await page.goto('./');await page.getByRole('button',{name:'Spoof interval 2'}).click();
+ const outcome=page.locator('#timing-out');await expect(outcome).toContainText('REJECTED');
+ await page.locator('#bound').fill('2');await expect(outcome).toContainText('Retired');
+ await page.getByRole('button',{name:'Spoof interval 2'}).click();await expect(outcome).toContainText('AUTHENTICATED');
+ const text=await outcome.innerText(),t=text.match(/disclosed K₂ at (\d+)s.*clock at (\d+)s \(true lag (\d+)s\).*bound (\d+)s.*safety x=(\d+), i\+d=(\d+)/s);
+ expect(t).not.toBeNull();
+ const [,sender,local,lag,bound,x,threshold]=t!.map(Number);
+ const interval=Number(await page.locator('#interval').inputValue());
+ expect(sender-Number(lag)).toBe(Number(local));
+ expect(Math.floor((Number(local)+Number(bound))/interval)).toBe(Number(x));
+ expect(Number(x)).toBeLessThan(Number(threshold));
+ const wire=text.match(/Packet tag: ([0-9a-f]+); disclosed K₂: ([0-9a-f]+)/);expect(wire).not.toBeNull();
+ const macKey=hmac(Buffer.from(wire![2],'hex'),Buffer.from([1]));
+ expect(hmac(macKey,packetInput(2,'FAKE: reroute the broadcast')).subarray(0,4).toString('hex')).toBe(wire![1]);
+ const data=await page.locator('#airtime').innerText();expect(data).toContain('8.00 seconds');expect(data).toContain('6 s');
+ await page.locator('#bound').fill('8');await page.getByRole('button',{name:'Spoof interval 2'}).click();await expect(outcome).toContainText('REJECTED');
+});
+test('the disclosed chain and receiver-created tags rederive independently',async({page})=>{
+ await page.goto('./');
+ await page.getByRole('button',{name:'Have receiver 2 forge a broadcast'}).click();
+ const shared=await page.locator('#shared-out').innerText();
+ const parts=shared.match(/Shared key: ([0-9a-f]+); message: (.*); full tag: ([0-9a-f]+)/);
+ expect(parts).not.toBeNull();
+ expect(hmac(Buffer.from(parts![1],'hex'),Buffer.from(parts![2])).toString('hex')).toBe(parts![3]);
+ await page.getByRole('button',{name:'Verify disclosed K₄'}).click();
+ const chain=await page.locator('#chain-out').innerText();
+ const keys=chain.match(/K₄ ([0-9a-f]+) hashed (\d+) times to signed K₀ ([0-9a-f]+)/);
+ expect(keys).not.toBeNull();
+ let k=Buffer.from(keys![1],'hex');for(let i=0;i<Number(keys![2]);i++)k=hmac(k,Buffer.from([0]));
+ expect(k.toString('hex')).toBe(keys![3]);
+ await page.getByRole('button',{name:'Forge after disclosure'}).click();
+ const outcome=await page.locator('#offline-out').innerText();
+ expect(outcome).toContain('TAG VERIFIES — AND ANYONE COULD HAVE MADE IT');
+ const wire=outcome.match(/K₂=([0-9a-f]+); tag=([0-9a-f]+)/);
+ expect(wire).not.toBeNull();
+ const derived=hmac(Buffer.from(wire![1],'hex'),Buffer.from([1]));
+ expect(hmac(derived,packetInput(2,'FAKE: historical interval 2')).subarray(0,wire![2].length/2).toString('hex')).toBe(wire![2]);
+});
