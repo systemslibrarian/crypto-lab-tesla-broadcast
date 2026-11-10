@@ -41,8 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {contents: write, pull-requests: write, actions: write}
     steps:
-      - uses: dependabot/fetch-metadata@v3
+      - id: meta
+        uses: dependabot/fetch-metadata@v3
       - name: Merge after the same complete gate and dispatch
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
         run: |
           for attempt in 1 2 3; do
             gh pr merge --squash --delete-branch "$PR_URL" && merged=1 && break
