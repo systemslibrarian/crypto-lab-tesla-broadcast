@@ -67,3 +67,22 @@ test('lost disclosures release real buffered packets, while a wide bound discard
  await expect(result).toContainText('unsafe genuine packets: 4');
  await expect(result).toContainText('Authenticated intervals: none');
 });
+// Section 1 quotes what one Ed25519 signature costs on the channel; the chain
+// read-out prints the bit length of the signature the page actually makes. The
+// two must agree. An earlier revision called it "a 384-bit signature ... 19.2
+// seconds"; 384 bits is the short-signature size Boneh-Shoup §14.7 uses, not
+// Ed25519's 64 octets (RFC 8032 §5.1.6).
+test('the quoted Ed25519 signature cost matches the signature the page really makes',async({page})=>{
+ await page.goto('./');
+ const quoted=(await page.locator('section[aria-labelledby="shared"]').innerText()).match(/its (\d+)-bit signature alone takes ([\d.]+) seconds/);
+ expect(quoted).not.toBeNull();
+ await page.getByRole('button',{name:'Verify disclosed K₄'}).click();
+ const measured=(await page.locator('#chain-out').innerText()).match(/Signature: (\d+) bits/);
+ expect(measured).not.toBeNull();
+ expect(Number(quoted![1])).toBe(Number(measured![1]));
+ expect(Number(measured![1])).toBe(512);
+ const rate=Number(await page.locator('#rate').inputValue());
+ expect(rate).toBe(20);
+ expect(Number(quoted![2])).toBe(Number(measured![1])/rate);
+ expect(Number(quoted![2])).toBe(25.6);
+});

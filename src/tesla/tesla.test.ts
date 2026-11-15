@@ -31,6 +31,13 @@ describe('primary-source primitive vectors',()=>{
   const params={t0:0,interval:10,delay:2,n:8},root=new Uint8Array(32),signed=signAnchor(root,params,privateKey);
   expect(verifyAnchor(root,params,signed.signature,signed.publicKey)).toBe(true);
   expect(verifyAnchor(root,{...params,delay:1},signed.signature,signed.publicKey)).toBe(false);
+  // RFC 8032 Section 5.1.6 step 6: an Ed25519 signature is R (32 octets) ‖ S (32
+  // octets), so 64 bytes = 512 bits — not 384, which is the short-signature size
+  // Boneh-Shoup Section 14.7 uses. At the page's 20 bits/s that is 25.6 s, the
+  // figure quoted in section 1.
+  expect(signed.signature.length).toBe(64);
+  expect(signed.signature.length*8).toBe(512);
+  expect(signed.signature.length*8/20).toBe(25.6);
  });
 });
 describe('RFC 4082 timing and key authentication',()=>{
