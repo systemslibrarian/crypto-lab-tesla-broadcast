@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import {expect,test,type Page} from '@playwright/test';
+import {auditControlNames,formatControlNameFailures} from './control-names';
 
 const WCAG=['wcag2a','wcag2aa','wcag21a','wcag21aa'];
 async function scan(page:Page){
@@ -11,6 +12,9 @@ async function scan(page:Page){
   expect(result.incomplete.filter(v=>WCAG.some(t=>v.tags.includes(t))).map(v=>v.id),'axe must decide WCAG checks, not leave inconclusive contrast').toEqual([]);
   const best=await new AxeBuilder({page}).withRules(['region','landmark-one-main']).analyze();
   expect(best.violations.map(v=>v.id)).toEqual([]);
+  // axe's `label` rule accepts a bare `placeholder` as an accessible name, so a
+  // deleted label can leave this gate green. See `control-names.ts`.
+  expect(formatControlNameFailures(await auditControlNames(page)),'form controls named only by placeholder/title').toEqual([]);
   const rgb=await page.evaluate(()=>{const h=getComputedStyle(document.documentElement),b=getComputedStyle(document.body);return [h.backgroundColor,b.color]});
   expect(rgb[0]).not.toBe('rgba(0, 0, 0, 0)');
 }
