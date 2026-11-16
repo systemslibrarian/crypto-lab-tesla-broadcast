@@ -91,6 +91,15 @@ The agent re-runs the grep above before building and reports anything new.
    real HMAC check accepts it. Verdict: "VALID TAG — AND FORGED BY A RECEIVER" (ALARM). Then the
    signature fix and its cost: B–S §14.7's framing — 20 bits/s available for authentication; a
    384-bit signature takes 19.2 s per message (show the arithmetic from the inputs).
+   - **Those 384 bits are the book's, not Ed25519's.** The B–S attribution above is right: §14.7
+     takes the short signatures of its Chapters 15 and 19, "can be as short as 384 bits", and says
+     "at 20 bits per second, even a 384 bit signature will take twenty seconds to transmit" —
+     384/20 = 19.2 s exactly, which the book rounds to twenty. The figure is accurate about the
+     book's own hypothetical short signature and it does **not** describe Ed25519: an Ed25519
+     signature is R ‖ S, 64 octets, 512 bits (RFC 8032 §7, "signatures are 64 octets"), so at
+     20 bits/s it costs 25.6 s. §1 of the page applied the book's 384 bits / 19.2 s to its own
+     Ed25519 signature and was corrected to 512 bits / 25.6 s in `95e0d40`. Keep the book's
+     framing here; do not put 384 bits or 19.2 s back on the page as an Ed25519 cost.
 2. **The key chain.** Generate a chain of n keys (n ≤ 4096) per RFC 4082 §3.2: random K_N,
    K_i = F(K_{i+1}), commitment K_0 signed with Ed25519. Step through it. The learner picks a
    disclosed key K_i and the page verifies it back to the anchor by hashing forward i times.
