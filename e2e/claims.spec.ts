@@ -86,3 +86,14 @@ test('the quoted Ed25519 signature cost matches the signature the page really ma
  expect(Number(quoted![2])).toBe(Number(measured![1])/rate);
  expect(Number(quoted![2])).toBe(25.6);
 });
+
+test('the lesson distinguishes tag length, key length and disclosure time', async ({ page }) => {
+  await page.goto('./');
+  const panel = page.getByRole('region', { name: '4 · Bits on the air' });
+  await expect(panel).toContainText('a uniformly random tag guess matches with probability');
+  await expect(panel).toContainText('A matching tag does not reveal the MAC key');
+  await expect(panel).toContainText('256-bit keys');
+  await page.locator('#key-bits').fill('256');
+  await expect(page.locator('#airtime')).toContainText('14.40 seconds');
+  await expect(page.getByRole('region', { name: 'A secret that arrives after the message' })).toContainText('at or after');
+});
